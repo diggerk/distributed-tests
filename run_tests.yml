@@ -1,0 +1,20 @@
+- hosts: all
+  gather_facts: no
+  vars:
+    repo: git://github.com/griddynamics/yhadoop-common
+    branch: trunk-gd
+    maven_opts: -Xmx2048m
+    module: hadoop-common-project/hadoop-common
+    tests: '$FILE(tests_$inventory_hostname)'
+    logs_dir: logs
+  tasks:
+  - name: fetch sources
+    git: repo=$repo dest=$target_dir version=$branch
+  - name: build sources
+    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn clean install -DskipTests chdir=$target_dir
+  - name: run tests
+    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn -f $module/pom.xml -Dtest=$tests -Dmaven.test.failure.ignore=true test chdir=$target_dir
+  - name: archive reports
+    shell: tar -czf reports.tar.gz `find . -type d -name surefire-reports` chdir=$target_dir
+  - name: fetch reports
+    fetch: src=$target_dir/reports.tar.gz dest=$logs_dir
