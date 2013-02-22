@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os
+import os, re
 from threading import Lock
 
 from ansible.runner import Runner
@@ -20,7 +20,8 @@ class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
         self.tests_lock = Lock()
         self.tests_generated = False
     def on_ok(self, host, res):
-        if 'git' == res['invocation']['module_name']:
+        module = res['invocation']['module_name']
+        if 'git' == module:
             with self.tests_lock:
                 if not self.tests_generated:
                     r = Runner(module_name='shell', 
@@ -42,23 +43,39 @@ class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
             f.write(",".join(tests_per_host[host]))
             f.close()
 
+build_num = 0
+if 'builds' in os.listdir(os.curdir):
+     builds =  map(
+      lambda d: int(d), 
+      filter(
+        lambda d: re.match('\d+', d), 
+        os.listdir('builds')))
+     if builds:
+         build_num = sorted(builds, reverse=True)[0] + 1
+
+print "Build", build_num
+
+build_dir = "builds/%s" % build_num
+os.makedirs(build_dir)
 
 inv = Inventory('hosts')
 
 stats = callbacks.AggregateStats()
 playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
 runner_cb = RunnerCallbacks(inv, stats, verbose=utils.VERBOSITY)
-pb = PlayBook(playbook='run_tests.yml', inventory=inv, stats=stats, runner_callbacks=runner_cb, callbacks=playbook_cb)
+pb = PlayBook(playbook='run_tests.yml', inventory=inv, 
+  stats=stats, runner_callbacks=runner_cb, callbacks=playbook_cb, 
+  extra_vars={'build_dir': build_dir})
 pb.run()
 
 
 def junit_reports():
-    for dirname, dirnames, filenames in os.walk('logs'):
+    for dirname, dirnames, filenames in os.walk(build_dir):
         for fn in filenames:
             if fn.startswith('TEST-') and fn.endswith('.xml'):
                 yield os.path.join(dirname, fn)
 
-os.system('find logs -name *tar.gz -exec tar -C logs -xzf {} \;')
+os.system('find %s -name *tar.gz -exec tar -C %s -xzf {} \;' % (build_dir, build_dir))
 
 failed = []
 skipped = []
