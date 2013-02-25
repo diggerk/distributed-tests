@@ -1,0 +1,4 @@
+builds
+*pyc
+test_stats.db
+tests_*
