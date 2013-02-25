@@ -9,9 +9,19 @@ from ansible.playbook import PlayBook
 
 import xunitparser
 
+from balancer import new_balancer
+
 
 utils.VERBOSITY=1
 
+def gen_test_lists(inventory, tests):
+    hosts = [h.name for h in inventory.get_hosts()]
+    balancer = new_balancer()
+    splits = balancer.calc_splits(len(hosts), tests) 
+    for i in range(0, len(hosts)):
+        f = open('tests_' + hosts[i], "w")
+        f.write(",".join(splits[i]))
+        f.close()
 
 class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
     def __init__(self, inventory, stats, verbose):
@@ -29,21 +39,13 @@ class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
                         inventory=self.inventory,
                         pattern=host) 
                     res = r.run()
-                    self.gen_test_lists(res['contacted'][host]['stdout'].split(','))
+                    gen_test_lists(self.inventory, res['contacted'][host]['stdout'].split(','))
                     self.tests_generated = True
         super(RunnerCallbacks, self).on_ok(host, res)
-    def gen_test_lists(self, tests):
-        hosts = [h.name for h in self.inventory.get_hosts()]
-        hosts_cnt = len(hosts)
-        tests_per_host = {}
-        for i in range(0, len(tests)):
-            tests_per_host.setdefault(hosts[i % hosts_cnt], []).append(tests[i]) 
-        for host in hosts:
-            f = open('tests_' + host, "w")
-            f.write(",".join(tests_per_host[host]))
-            f.close()
+
 
 build_num = 0
+prev_build_num = None
 if 'builds' in os.listdir(os.curdir):
      builds =  map(
       lambda d: int(d), 
@@ -51,7 +53,8 @@ if 'builds' in os.listdir(os.curdir):
         lambda d: re.match('\d+', d), 
         os.listdir('builds')))
      if builds:
-         build_num = sorted(builds, reverse=True)[0] + 1
+         prev_build_num = sorted(builds, reverse=True)[0]
+         build_num = prev_build_num + 1
 
 print "Build", build_num
 
@@ -80,11 +83,16 @@ os.system('find %s -name *tar.gz -exec tar -C %s -xzf {} \;' % (build_dir, build
 failed = []
 skipped = []
 executed = 0
+tests_durations = {}
 for report in junit_reports():
     ts, tr = xunitparser.parse(open(report))
     skipped += filter(lambda tc: tc.skipped, ts)
     failed += filter(lambda tc: not tc.good, ts)
     executed += len([tc for tc in ts])
+    tests_durations[ts.name] = tr.time.total_seconds()
+
+balancer = new_balancer()
+balancer.update_stats(tests_durations)
 
 print "Tests run: %s\tFailures: %s\tSkipped: %s" % (executed, len(failed), len(skipped))
 
