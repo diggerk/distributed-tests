@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os, re
-from threading import Lock
+from datetime import datetime
+from contextlib import contextmanager
 
 from ansible.runner import Runner
 from ansible.inventory import Inventory
@@ -12,7 +13,7 @@ import xunitparser
 from balancer import new_balancer
 
 
-utils.VERBOSITY=1
+utils.VERBOSITY=0
 
 def gen_test_lists(inventory, tests):
     hosts = [h.name for h in inventory.get_hosts()]
@@ -23,25 +24,27 @@ def gen_test_lists(inventory, tests):
         f.write(",".join(splits[i]))
         f.close()
 
+
 class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
     def __init__(self, inventory, stats, verbose):
         super(RunnerCallbacks, self).__init__(stats, verbose=verbose)
         self.inventory = inventory
-        self.tests_lock = Lock()
-        self.tests_generated = False
+        self.host_ts = {}
+        for h in inventory.get_hosts():
+            self.host_ts[h.name] = datetime.now()
     def on_ok(self, host, res):
         module = res['invocation']['module_name']
-        if 'git' == module:
-            with self.tests_lock:
-                if not self.tests_generated:
-                    r = Runner(module_name='shell', 
-                        module_args='find . -name "Test*java" -exec basename {} \; | sed -e "s/.java//g" | tr "\n" "," chdir=$target_dir',
-                        inventory=self.inventory,
-                        pattern=host) 
-                    res = r.run()
-                    gen_test_lists(self.inventory, res['contacted'][host]['stdout'].split(','))
-                    self.tests_generated = True
+        delta = datetime.now() - self.host_ts[host]
+        print "done in %s on %s" % (str(delta), host)
+        if 'git' == module and host == self.inventory.get_hosts()[0]:
+            r = Runner(module_name='shell', 
+                module_args='find . -name "Test*java" -exec basename {} \; | sed -e "s/.java//g" | tr "\n" "," chdir=$target_dir',
+                inventory=self.inventory,
+                pattern=host) 
+            res = r.run()
+            gen_test_lists(self.inventory, res['contacted'][host]['stdout'].split(','))
         super(RunnerCallbacks, self).on_ok(host, res)
+        self.host_ts[host] = datetime.now()
 
 
 build_num = 0

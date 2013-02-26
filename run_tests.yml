@@ -10,12 +10,12 @@
   - name: fetch sources
     git: repo=$repo dest=$target_dir version=$branch
   - name: build sources
-    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn clean install -DskipTests chdir=$target_dir
+    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn clean install -DskipTests >${inventory_hostname}.out 2>&1 chdir=$target_dir
   - name: set tests to run
     copy: dest=$target_dir src=tests_${inventory_hostname}
   - name: run tests
-    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn -f $module/pom.xml -Dtest=`cat tests_${inventory_hostname}` -Dmaven.test.failure.ignore=true test -Pparallel-tests chdir=$target_dir
+    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn -f $module/pom.xml -Dtest=`cat tests_${inventory_hostname}` -Dmaven.test.failure.ignore=true test -Pparallel-tests >>${inventory_hostname}.out 2>&1 chdir=$target_dir
   - name: archive reports
-    shell: tar -czf reports.tar.gz `find . -type d -name surefire-reports` chdir=$target_dir
+    shell: tar -czf reports.tar.gz ${inventory_hostname}.out `find . -type d -name surefire-reports` chdir=$target_dir
   - name: fetch reports
     fetch: src=$target_dir/reports.tar.gz dest=$build_dir

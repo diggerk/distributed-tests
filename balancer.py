@@ -51,7 +51,7 @@ class EvenDurationBalancer(RoundRobinBalancer):
         for test in sorted(test_names, key=lambda test : -test_statistics.get(test, 0)):
             split_index = test_times.index(min(test_times))
             test_duration = test_statistics.get(test, 0)
-            print "Process test %s, duration %f" % (test, test_duration)
+            #print "Process test %s, duration %f" % (test, test_duration)
             if not test_duration:
                 split_index = random.randint(0, split_factor - 1)
                 unknown_tests[split_index] += 1
@@ -70,15 +70,14 @@ class EvenDurationBalancer(RoundRobinBalancer):
             cursor = con.cursor()
             for test in tests_durations: 
                 duration = tests_durations[test]
-                print "Process test %s, duration %s" % (test, duration)
+                #print "Process test %s, duration %s" % (test, duration)
                 cursor.execute("REPLACE INTO test_stat(test_name, duration) VALUES(?,?) ", (test, float(duration)))
             con.commit()
         finally:
             con.close()
-        print "Test statistics updated"
+        print "Test statistics updated for %s tests" % len(tests_durations)
         self.no_stats = False
         #]
 
 def new_balancer():
     return EvenDurationBalancer()
-    #return RoundRobinBalancer()
