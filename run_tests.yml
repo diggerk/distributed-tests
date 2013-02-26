@@ -12,7 +12,7 @@
   - name: build sources
     shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn clean install -DskipTests >${inventory_hostname}.out 2>&1 chdir=$target_dir
   - name: set tests to run
-    copy: dest=$target_dir src=tests_${inventory_hostname}
+    copy: dest=$target_dir src=$build_dir/tests_${inventory_hostname}
   - name: run tests
     shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn -f $module/pom.xml -Dtest=`cat tests_${inventory_hostname}` -Dmaven.test.failure.ignore=true test -Pparallel-tests >>${inventory_hostname}.out 2>&1 chdir=$target_dir
   - name: archive reports

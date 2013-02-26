@@ -13,12 +13,12 @@ import xunitparser
 from balancer import new_balancer
 
 
-def gen_test_lists(inventory, tests):
+def gen_test_lists(build_dir, inventory, tests):
     hosts = [h.name for h in inventory.get_hosts()]
     balancer = new_balancer()
     splits = balancer.calc_splits(len(hosts), tests) 
     for i in range(0, len(hosts)):
-        f = open('tests_' + hosts[i], "w")
+        f = open(build_dir + '/tests_' + hosts[i], "w")
         f.write(",".join(splits[i]))
         f.close()
 
@@ -30,26 +30,21 @@ def junit_reports(build_dir):
 
 
 class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
-    def __init__(self, inventory, stats, verbose, module):
+    def __init__(self, build_dir, inventory, stats, verbose, module):
         super(RunnerCallbacks, self).__init__(stats, verbose=verbose)
+        self.build_dir = build_dir
         self.inventory = inventory
         self.module = module
-        self.host_ts = {}
-        for h in inventory.get_hosts():
-            self.host_ts[h.name] = datetime.now()
     def on_ok(self, host, res):
         module = res['invocation']['module_name']
-        delta = datetime.now() - self.host_ts[host]
-        print "done in %s on %s" % (str(delta), host)
+        print "%s ok:[%s]" % (str(datetime.now()), host)
         if 'git' == module and host == self.inventory.get_hosts()[0].name:
             r = Runner(module_name='shell', 
                 module_args='find . -name "Test*java" -exec basename {} \; | sed -e "s/.java//g" | tr "\n" "," chdir=$target_dir/%s' % self.module,
                 inventory=self.inventory,
                 pattern=host) 
             res = r.run()
-            gen_test_lists(self.inventory, res['contacted'][host]['stdout'].split(','))
-        super(RunnerCallbacks, self).on_ok(host, res)
-        self.host_ts[host] = datetime.now()
+            gen_test_lists(self.build_dir, self.inventory, res['contacted'][host]['stdout'].split(','))
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument("-v", "--verbose", 
@@ -81,7 +76,8 @@ inv = Inventory('hosts')
 
 stats = callbacks.AggregateStats()
 playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
-runner_cb = RunnerCallbacks(inv, stats, utils.VERBOSITY, args.module)
+runner_cb = RunnerCallbacks(build_dir, inv, stats, 
+  utils.VERBOSITY, args.module)
 extra_vars = {'build_dir': build_dir}
 if args.module:
     extra_vars['module'] = args.module
