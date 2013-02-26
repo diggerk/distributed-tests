@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os, re
 from datetime import datetime
-from contextlib import contextmanager
+import argparse
 
 from ansible.runner import Runner
 from ansible.inventory import Inventory
@@ -13,8 +13,6 @@ import xunitparser
 from balancer import new_balancer
 
 
-utils.VERBOSITY=0
-
 def gen_test_lists(inventory, tests):
     hosts = [h.name for h in inventory.get_hosts()]
     balancer = new_balancer()
@@ -24,11 +22,18 @@ def gen_test_lists(inventory, tests):
         f.write(",".join(splits[i]))
         f.close()
 
+def junit_reports(build_dir):
+    for dirname, dirnames, filenames in os.walk(build_dir):
+        for fn in filenames:
+            if fn.startswith('TEST-') and fn.endswith('.xml'):
+                yield os.path.join(dirname, fn)
+
 
 class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
-    def __init__(self, inventory, stats, verbose):
+    def __init__(self, inventory, stats, verbose, module):
         super(RunnerCallbacks, self).__init__(stats, verbose=verbose)
         self.inventory = inventory
+        self.module = module
         self.host_ts = {}
         for h in inventory.get_hosts():
             self.host_ts[h.name] = datetime.now()
@@ -36,9 +41,9 @@ class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
         module = res['invocation']['module_name']
         delta = datetime.now() - self.host_ts[host]
         print "done in %s on %s" % (str(delta), host)
-        if 'git' == module and host == self.inventory.get_hosts()[0]:
+        if 'git' == module and host == self.inventory.get_hosts()[0].name:
             r = Runner(module_name='shell', 
-                module_args='find . -name "Test*java" -exec basename {} \; | sed -e "s/.java//g" | tr "\n" "," chdir=$target_dir',
+                module_args='find . -name "Test*java" -exec basename {} \; | sed -e "s/.java//g" | tr "\n" "," chdir=$target_dir/%s' % self.module,
                 inventory=self.inventory,
                 pattern=host) 
             res = r.run()
@@ -46,9 +51,18 @@ class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
         super(RunnerCallbacks, self).on_ok(host, res)
         self.host_ts[host] = datetime.now()
 
+arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument("-v", "--verbose", 
+  help="increase output verbosity",
+  action="store_true")
+arg_parser.add_argument("-m", "--module",
+  help="module to test (e.g. hadoop-common-project/hadoop-common)",
+  default=".")
+args = arg_parser.parse_args()
+if args.verbose:
+    utils.VERBOSITY=1
 
 build_num = 0
-prev_build_num = None
 if 'builds' in os.listdir(os.curdir):
      builds =  map(
       lambda d: int(d), 
@@ -56,8 +70,7 @@ if 'builds' in os.listdir(os.curdir):
         lambda d: re.match('\d+', d), 
         os.listdir('builds')))
      if builds:
-         prev_build_num = sorted(builds, reverse=True)[0]
-         build_num = prev_build_num + 1
+         build_num = sorted(builds, reverse=True)[0] + 1
 
 print "Build", build_num
 
@@ -68,18 +81,15 @@ inv = Inventory('hosts')
 
 stats = callbacks.AggregateStats()
 playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
-runner_cb = RunnerCallbacks(inv, stats, verbose=utils.VERBOSITY)
+runner_cb = RunnerCallbacks(inv, stats, utils.VERBOSITY, args.module)
+extra_vars = {'build_dir': build_dir}
+if args.module:
+    extra_vars['module'] = args.module
 pb = PlayBook(playbook='run_tests.yml', inventory=inv, 
   stats=stats, runner_callbacks=runner_cb, callbacks=playbook_cb, 
-  extra_vars={'build_dir': build_dir})
+  extra_vars=extra_vars)
 pb.run()
 
-
-def junit_reports():
-    for dirname, dirnames, filenames in os.walk(build_dir):
-        for fn in filenames:
-            if fn.startswith('TEST-') and fn.endswith('.xml'):
-                yield os.path.join(dirname, fn)
 
 os.system('find %s -name *tar.gz -exec tar -C %s -xzf {} \;' % (build_dir, build_dir))
 
@@ -87,12 +97,13 @@ failed = []
 skipped = []
 executed = 0
 tests_durations = {}
-for report in junit_reports():
+for report in junit_reports(build_dir):
     ts, tr = xunitparser.parse(open(report))
     skipped += filter(lambda tc: tc.skipped, ts)
     failed += filter(lambda tc: not tc.good, ts)
     executed += len([tc for tc in ts])
-    tests_durations[ts.name] = tr.time.total_seconds()
+    name = ts.name[ts.name.rindex('.') + 1:]
+    tests_durations[name] = tr.time.total_seconds()
 
 balancer = new_balancer()
 balancer.update_stats(tests_durations)
