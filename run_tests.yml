@@ -1,10 +1,11 @@
 - hosts: all
   gather_facts: no
   vars:
-    repo: git://github.com/griddynamics/yhadoop-common
-    branch: fb-YAHOO-238-trunk-gd
+    repo: git://github.com/apache/hadoop-common
+    branch: trunk
     maven_opts: -Xmx2048m
-    module: hadoop-common-project/hadoop-common
+    extra_params: 
+    module: .
     build_dir: build
   tasks:
   - name: fetch sources
@@ -14,7 +15,7 @@
   - name: set tests to run
     copy: dest=$target_dir src=$build_dir/tests_${inventory_hostname}
   - name: run tests
-    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn -f $module/pom.xml -Dtest=`cat tests_${inventory_hostname}` -Dmaven.test.failure.ignore=true test -Pparallel-tests >>${inventory_hostname}.out 2>&1 chdir=$target_dir
+    shell: PATH=\$PATH:$extra_path MAVEN_OPTS=$maven_opts mvn -f $module/pom.xml -Dtest=`cat tests_${inventory_hostname}` -Dmaven.test.failure.ignore=true test $extra_params >>${inventory_hostname}.out 2>&1 chdir=$target_dir
   - name: archive reports
     shell: tar -czf reports.tar.gz ${inventory_hostname}.out `find . -type d -name surefire-reports` chdir=$target_dir
   - name: fetch reports

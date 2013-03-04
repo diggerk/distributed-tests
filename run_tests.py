@@ -7,6 +7,7 @@ from ansible.runner import Runner
 from ansible.inventory import Inventory
 from ansible import callbacks, utils
 from ansible.playbook import PlayBook
+from ansible.constants import DEFAULT_REMOTE_USER, DEFAULT_PRIVATE_KEY_FILE
 
 import xunitparser
 
@@ -50,9 +51,20 @@ arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument("-v", "--verbose", 
   help="increase output verbosity",
   action="store_true")
+arg_parser.add_argument("-i", "--hosts", 
+  help="hosts file to use (default is 'hosts')")
+arg_parser.add_argument("-b", "--branch",
+  help="branch to test")
+arg_parser.add_argument("-r", "--repo",
+  help="git repo to use")
 arg_parser.add_argument("-m", "--module",
-  help="module to test (e.g. hadoop-common-project/hadoop-common)",
-  default=".")
+  help="module to test (e.g. hadoop-common-project/hadoop-common)")
+arg_parser.add_argument("-x", "--extra",
+  help="Extra params for mvn test invocation")
+arg_parser.add_argument("-u", "--user",
+  help="Remote user")
+arg_parser.add_argument("-k", "--keyfile",
+  help="Private key file")
 args = arg_parser.parse_args()
 if args.verbose:
     utils.VERBOSITY=1
@@ -72,18 +84,26 @@ print "Build", build_num
 build_dir = "builds/%s" % build_num
 os.makedirs(build_dir)
 
-inv = Inventory('hosts')
+inv = Inventory('hosts' if not args.hosts else args.hosts)
 
 stats = callbacks.AggregateStats()
 playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
 runner_cb = RunnerCallbacks(build_dir, inv, stats, 
   utils.VERBOSITY, args.module)
 extra_vars = {'build_dir': build_dir}
+if args.repo:
+    extra_vars['repo'] = args.repo
 if args.module:
     extra_vars['module'] = args.module
+if args.branch:
+    extra_vars['branch'] = args.branch
+if args.extra:
+    extra_vars['extra_params'] = args.extra
 pb = PlayBook(playbook='run_tests.yml', inventory=inv, 
   stats=stats, runner_callbacks=runner_cb, callbacks=playbook_cb, 
-  extra_vars=extra_vars)
+  extra_vars=extra_vars,
+  remote_user=args.user if args.user else DEFAULT_REMOTE_USER,
+  private_key_file=args.keyfile if args.keyfile else DEFAULT_PRIVATE_KEY_FILE)
 pb.run()
 
 
