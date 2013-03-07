@@ -31,17 +31,20 @@ def junit_reports(build_dir):
 
 
 class RunnerCallbacks(callbacks.PlaybookRunnerCallbacks):
-    def __init__(self, build_dir, inventory, stats, verbose, module):
+    def __init__(self, build_dir, remote_user, private_key_file, inventory, stats, verbose, module):
         super(RunnerCallbacks, self).__init__(stats, verbose=verbose)
         self.build_dir = build_dir
         self.inventory = inventory
-        self.module = module
+        self.module = module or '.'
+        self.remote_user = remote_user
+        self.private_key_file = private_key_file
     def on_ok(self, host, res):
         module = res['invocation']['module_name']
         print "%s ok:[%s]" % (str(datetime.now()), host)
         if 'git' == module and host == self.inventory.get_hosts()[0].name:
             r = Runner(module_name='shell', 
                 module_args='find . -name "Test*java" -exec basename {} \; | sed -e "s/.java//g" | tr "\n" "," chdir=$target_dir/%s' % self.module,
+                remote_user=self.remote_user, private_key_file=self.private_key_file,
                 inventory=self.inventory,
                 pattern=host) 
             res = r.run()
@@ -88,8 +91,6 @@ inv = Inventory('hosts' if not args.hosts else args.hosts)
 
 stats = callbacks.AggregateStats()
 playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
-runner_cb = RunnerCallbacks(build_dir, inv, stats, 
-  utils.VERBOSITY, args.module)
 extra_vars = {'build_dir': build_dir}
 if args.repo:
     extra_vars['repo'] = args.repo
@@ -99,11 +100,15 @@ if args.branch:
     extra_vars['branch'] = args.branch
 if args.extra:
     extra_vars['extra_params'] = args.extra
+remote_user=args.user if args.user else DEFAULT_REMOTE_USER
+private_key_file=args.keyfile if args.keyfile else DEFAULT_PRIVATE_KEY_FILE
+runner_cb = RunnerCallbacks(build_dir, remote_user, private_key_file, 
+  inv, stats, utils.VERBOSITY, args.module)
 pb = PlayBook(playbook='run_tests.yml', inventory=inv, 
   stats=stats, runner_callbacks=runner_cb, callbacks=playbook_cb, 
   extra_vars=extra_vars,
-  remote_user=args.user if args.user else DEFAULT_REMOTE_USER,
-  private_key_file=args.keyfile if args.keyfile else DEFAULT_PRIVATE_KEY_FILE)
+  remote_user=remote_user,
+  private_key_file=private_key_file)
 pb.run()
 
 
